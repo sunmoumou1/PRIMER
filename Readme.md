@@ -103,7 +103,7 @@ process_gauges_before/
 │   ├── train_with_multiple_gpu_mutiple_sources.py # Multi-source training entry
 │   ├── dct_util.py                          # Discrete cosine transform utilities
 │   └── remove_pycache.py                    # Clean cached Python artifacts
-├── data/                                    # Example ERA5/IMERG/gauge/PRIMER sample arrays
+├── data/                                    # Example ERA5/IMERG/gauge/HRES sample arrays
 ├── environment/requirements.yml             # Conda environment specification
 ```
 

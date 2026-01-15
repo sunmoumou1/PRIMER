@@ -1,14 +1,13 @@
-
-import torch # type: ignore
-import torch.distributed as dist # type: ignore
-import torch.multiprocessing as mp # type: ignore
-from torch.nn.parallel import DistributedDataParallel as DDP # type: ignore
+import torch  # type: ignore
+import torch.distributed as dist  # type: ignore
+import torch.multiprocessing as mp  # type: ignore
+from torch.nn.parallel import DistributedDataParallel as DDP  # type: ignore
 import numpy as np
-from torch import isnan # type: ignore
+from torch import isnan  # type: ignore
 
 import wandb  # type: ignore
-from absl import app # type: ignore
-from absl import flags # type: ignore
+from absl import app  # type: ignore
+from absl import flags  # type: ignore
 
 from ml_collections.config_flags import config_flags  # type: ignore
 import time
@@ -52,6 +51,7 @@ torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 
+
 def print_module_params(model, module_names):
     """
     Print the total number of trainable parameters in the model,
@@ -88,8 +88,7 @@ def print_module_params(model, module_names):
             )
         else:
             print(f"Module {module_name} not found in the model.")
-            
-            
+
 
 def setup_ddp(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
@@ -105,7 +104,6 @@ def cleanup_ddp():
     Clean up distributed process groups
     """
     dist.destroy_process_group()
-
 
 
 def generate_samples(
@@ -126,7 +124,9 @@ def generate_samples(
         )
     elif rank == 1:
         z = (
-            torch.tensor([0, 0, 1], dtype=torch.float32) # choose whatever style you would like to generate
+            torch.tensor(
+                [0, 0, 1], dtype=torch.float32
+            )  # choose whatever style you would like to generate
             .unsqueeze(0)
             .repeat(H.generation.sample_size, 1)
             .to(torch.device(f"cuda:{rank}"))
@@ -141,7 +141,7 @@ def generate_samples(
                     H.generation.sample_img_size[1],
                 )
             ] * H.generation.sample_num  # repeated samples at original resolution
-            
+
             all_samples = []
             all_deblurred_samples = []
 
@@ -149,7 +149,9 @@ def generate_samples(
             for size in sizes:
                 h, w = size
 
-                noise_mul = min(h / H.data.expected_img_size[-2], w / H.data.expected_img_size[-1])
+                noise_mul = min(
+                    h / H.data.expected_img_size[-2], w / H.data.expected_img_size[-1]
+                )
 
                 samples, _ = diffusion.p_sample_loop(
                     model,
@@ -203,8 +205,8 @@ def generate_samples(
                     all_deblurred_samples,
                     filename=f"deblurred_samples_epoch_{num_epoch}_{h}x{w}_rank_{rank}.npy",
                 )
-                
-                
+
+
 def train_on_batch(
     batch,
     *,
@@ -325,9 +327,7 @@ def train_on_batch(
         scaler.scale(loss).backward()
         scaler.unscale_(optim)
 
-        model_total_norm = torch.nn.utils.clip_grad_norm_(
-            model.parameters(), 1.0
-        )
+        model_total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
         if (
             H.optimizer.gradient_skip
@@ -389,6 +389,7 @@ def train_on_batch(
 
     return mean_loss, mean_step_time, skip, mean_total_norm
 
+
 def train(
     H,
     model,
@@ -407,7 +408,7 @@ def train(
     mean_step_time = 0
     mean_total_norm = 0
     skip = 0
-        
+
     initial_global_step = global_step
 
     # Create subfolder to save sampled images
@@ -446,10 +447,9 @@ def train(
                     mean_step_time=mean_step_time,
                     skip=skip,
                     mean_total_norm=mean_total_norm,
-                    q_sample_ratio=H.mc_integral.q_sample_ratio
+                    q_sample_ratio=H.mc_integral.q_sample_ratio,
                 )
 
-                   
         num_epoch += 1
 
         # Save checkpoint at the end of each epoch
@@ -481,9 +481,9 @@ def train(
             print(
                 f"Checkpoint saved at step {global_step} (epoch {num_epoch}) for rank {rank} at {checkpoint_path_new}"
             )
-        
+
         dist.barrier()
-        
+
         # Generate and save samples at the end of each epoch
         generate_samples(
             num_epoch,
@@ -512,6 +512,7 @@ def train(
             print(f"Finished training epoch {num_epoch}")
             print("*" * 100)
 
+
 def main_worker(rank, world_size, H):
     torch.cuda.set_device(rank)
 
@@ -527,13 +528,18 @@ def main_worker(rank, world_size, H):
         # wandb can be disabled by passing in --config.run.wandb_mode=disabled
         wandb.init(
             project=H.run.name,
-            config=flatten_collection(H),  # Flatten the config H before passing to W&B for logging.
+            config=flatten_collection(
+                H
+            ),  # Flatten the config H before passing to W&B for logging.
             save_code=True,
             dir=H.run.wandb_dir,
             mode=H.run.wandb_mode,  # online
         )
 
-    base_img_height, base_img_width = H.data.expected_img_size[-2], H.data.expected_img_size[-1]
+    base_img_height, base_img_width = (
+        H.data.expected_img_size[-2],
+        H.data.expected_img_size[-1],
+    )
 
     model = SparseUNet(
         channels=H.data.channels,
@@ -596,12 +602,6 @@ def main_worker(rank, world_size, H):
     model = model.to(device)
     ema_model = ema_model.to(device)
 
-    # Wrap with DistributedDataParallel
-    model = DDP(model, device_ids=[rank])
-    ema_model = DDP(ema_model, device_ids=[rank])
-    # model = DDP(model, device_ids=[rank], find_unused_parameters=True)
-    # ema_model = DDP(ema_model, device_ids=[rank], find_unused_parameters=True)
-
     train_loaders, _ = get_data_loader(
         H,
         rank=rank,
@@ -627,7 +627,7 @@ def main_worker(rank, world_size, H):
             return initial_lr
 
         num_decays = retrain_epoch // decay_interval
-        current_lr = initial_lr * (0.5 ** num_decays)
+        current_lr = initial_lr * (0.5**num_decays)
         return current_lr
 
     optim = torch.optim.AdamW(
@@ -665,6 +665,12 @@ def main_worker(rank, world_size, H):
 
         # Clean up state_dict after use
         del state_dict
+
+    # Wrap with DistributedDataParallel
+    model = DDP(model, device_ids=[rank])
+    ema_model = DDP(ema_model, device_ids=[rank])
+    # model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    # ema_model = DDP(ema_model, device_ids=[rank], find_unused_parameters=True)
 
     # Update learning rate for each parameter group
     for param_group in optim.param_groups:
@@ -735,8 +741,7 @@ def main_worker(rank, world_size, H):
         rank,
         **train_kwargs,
     )
-    
-    
+
 
 def main(argv):
     H = FLAGS.config
@@ -754,7 +759,6 @@ def main(argv):
     # In other words, the main process will exit only after all subprocesses spawned by mp.spawn complete.
     # join=False means the main process will not wait for subprocesses to finish and will continue executing subsequent code.
     # In this case, subprocesses will run in the background.
-    
 
 
 if __name__ == "__main__":

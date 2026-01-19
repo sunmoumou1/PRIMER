@@ -1,4 +1,3 @@
-
 # sun by: python experiment/generate_samples.py
 
 # ----------------------------------------------------------------------------------------------
@@ -8,11 +7,12 @@
 
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import torch
-from absl import app # type: ignore
-from absl import flags # type: ignore
+from absl import app  # type: ignore
+from absl import flags  # type: ignore
 from ml_collections.config_flags import config_flags  # type: ignore
 import os
 from tqdm import tqdm
@@ -20,19 +20,16 @@ import numpy as np
 
 from models import SparseUNet
 import diffusion_class.diffusion_util as gd
-from diffusion_class import (
-    GaussianDiffusion,
-    get_named_beta_schedule
-)
+from diffusion_class import GaussianDiffusion, get_named_beta_schedule
 from dct_util import DCTGaussianBlur
-from utils import BasePrecipitationDataset
+from utils import BasePrecipitationDataset, gaugeDataset
 
 # Commandline arguments
 FLAGS = flags.FLAGS
 
 config_flags.DEFINE_config_file(
     "config",
-    "configs/training_config.py", # "/configs/training_config.py" That's the wrong way to write it
+    "configs/training_config.py",  # "/configs/training_config.py" That's the wrong way to write it
     "configuration.",
     lock_config=True,
 )
@@ -52,7 +49,7 @@ def main(argv):
     rank = H.run.gpu
     device = torch.device(f"cuda:{rank}")
     # device = torch.device("cuda:0")
-    
+
     base_img_height, base_img_width = H.data.img_size
     model = SparseUNet(
         channels=H.data.channels,
@@ -74,22 +71,22 @@ def main(argv):
         dropout=H.model.uno_dropout,
         uno_base_nf=H.model.uno_base_channels,
     )
-    
+
     checkpoint_path = f"./checkpoints/{H.run.experiment}/checkpoint_step_{H.train.checkpoint_num}_rank_0.pkl"
-    
+
     state_dict = torch.load(checkpoint_path, map_location="cpu")
 
     print(f"Loading model from step {state_dict['global_step']}")
 
     model.load_state_dict(state_dict["model_ema_state_dict"])
-    
+
     model = model.to(device)
 
     betas = get_named_beta_schedule(
         H.diffusion.noise_schedule,
         H.diffusion.steps,
     )
-    
+
     if H.diffusion.model_mean_type == "epsilon":
         model_mean_type = gd.ModelMeanType.EPSILON
     elif H.diffusion.model_mean_type == "xstart":
@@ -124,9 +121,21 @@ def main(argv):
         clip_min=H.data.clip_min,
         clip_max=H.data.clip_max,
     ).to(device)
-    
-    dataset = BasePrecipitationDataset(H)
-         
+
+    dataset = gaugeDataset(
+        root_dir=H.data.root_dir,
+        min_val=H.data.min_val,
+        max_val=H.data.max_val,
+        mean=H.data.mean,
+        std=H.data.std,
+        normalization=H.data.normalization,
+        fixed_length=H.data.fixed_length,
+        sample_filter_fn=None,
+        clip_min=H.data.clip_min,
+        clip_max=H.data.clip_max,
+        expected_img_size=H.data.img_size,
+    )
+
     make_samples(
         H,
         model,
@@ -137,7 +146,6 @@ def main(argv):
     )
 
 
-
 def make_samples(
     H,
     model,
@@ -145,7 +153,7 @@ def make_samples(
     *,
     dataset=None,
     device=None,
-    sample_img_size=None, 
+    sample_img_size=None,
 ):
 
     if sample_img_size is not None:
@@ -165,7 +173,7 @@ def make_samples(
             ).to(device)
 
     unique_name = H.run.unique_name
-    
+
     if unique_name == None:
         save_dir = f"checkpoints/{H.run.experiment}_samples_{sample_img_size}_checkpoints_{H.train.checkpoint_num}_device_{H.run.gpu}"
     else:
@@ -204,7 +212,6 @@ def make_samples(
                     return_all=False,
                     noise_mul=noise_mul,
                 )
-        
 
                 def save_to_npy(array, filename):
                     np.save(os.path.join(save_dir, filename), array)
@@ -214,7 +221,7 @@ def make_samples(
                     deblurred_samples = dataset.apply_denormalization(deblurred_samples)
 
                 samples = dataset.apply_denormalization(samples)
-                
+
                 save_to_npy(
                     samples,
                     filename=f"samples_{samples.shape[0]}x{samples.shape[2]}x{samples.shape[3]}_idx_{idx}.npy",
@@ -231,7 +238,6 @@ def make_samples(
                 if idx == (H.data.fid_samples // H.generation.sample_size + 1):
                     break
 
-                
-                
+
 if __name__ == "__main__":
     app.run(main)
